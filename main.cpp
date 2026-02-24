@@ -126,14 +126,20 @@ int main(int argc, char* argv[]) {
     std::cout << "d:view  n:label  l:reload  c:classify  a:auto-learn\n"
               << "b:save-embedding  m:embed-classify  e:eval  p:matrix  s:screenshot  q:quit\n";
 
-    cv::Mat frame, thresholded, cleaned;
+    cv::Mat frame, lastFrame, thresholded, cleaned;
     RegionMap regionMap;
     std::vector<RegionInfo> regions;
     std::vector<FeatureVec> fvecs;
 
     while (true) {
         cap >> frame;
-        if (frame.empty()) break;
+        // For static images, freeze on the last valid frame instead of exiting
+        if (frame.empty()) {
+            if (lastFrame.empty()) break;
+            frame = lastFrame.clone();
+        } else {
+            lastFrame = frame.clone();
+        }
 
         applyThreshold(frame, thresholded);
         applyMorphology(thresholded, cleaned);
