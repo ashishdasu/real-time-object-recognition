@@ -9,8 +9,10 @@
  */
 
 #include "classifier.h"
+#include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 
 static double scaledDistance(const FeatureVec &a, const FeatureVec &b,
                               const std::vector<double> &stdevs) {
@@ -44,11 +46,41 @@ std::string classifyFeature(const FeatureVec &fv,
     return (bestDist < unknownThresh) ? bestLabel : "Unknown";
 }
 
+std::string classifyFeatureKNN(const FeatureVec &fv,
+                               const FeatureDB &db,
+                               int k,
+                               double unknownThresh) {
+    if (db.samples.empty()) return "Unknown";
+
+    // Compute distance to every training sample and sort
+    std::vector<std::pair<double, std::string>> dists;
+    dists.reserve(db.samples.size());
+    for (size_t i = 0; i < db.samples.size(); i++)
+        dists.push_back({ scaledDistance(fv, db.samples[i], db.stdevs), db.labels[i] });
+
+    std::sort(dists.begin(), dists.end());
+
+    int K = std::min(k, (int)dists.size());
+
+    // Check if even the nearest neighbor is too far
+    double avgDist = 0.0;
+    for (int i = 0; i < K; i++) avgDist += dists[i].first;
+    avgDist /= K;
+    if (avgDist > unknownThresh) return "Unknown";
+
+    // Majority vote among K nearest
+    std::map<std::string, int> votes;
+    for (int i = 0; i < K; i++) votes[dists[i].second]++;
+
+    return std::max_element(votes.begin(), votes.end(),
+        [](const auto &a, const auto &b) { return a.second < b.second; })->first;
+}
+
 void classifyAndLabel(cv::Mat &display,
                       const std::vector<FeatureVec> &fvecs,
                       const FeatureDB &db) {
     for (const auto &fv : fvecs) {
-        std::string label = classifyFeature(fv, db);
+        std::string label = classifyFeatureKNN(fv, db);
         cv::Point pt((int)fv.centroid.x, (int)fv.centroid.y - 20);
         cv::putText(display, label, pt,
                     cv::FONT_HERSHEY_SIMPLEX, 0.8, {0, 0, 0}, 4);

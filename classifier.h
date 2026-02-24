@@ -13,13 +13,20 @@
 #include "database.h"
 #include <string>
 
-// Classify a feature vector against the DB. Returns the nearest label,
-// or "Unknown" if the scaled distance exceeds unknownThresh.
+// 1-nearest-neighbor. Returns "Unknown" if distance exceeds unknownThresh.
 std::string classifyFeature(const FeatureVec &fv,
                             const FeatureDB &db,
                             double unknownThresh = 3.0);
 
+// K-nearest-neighbor with majority vote. Returns "Unknown" if the average
+// distance of the K winners exceeds unknownThresh.
+std::string classifyFeatureKNN(const FeatureVec &fv,
+                               const FeatureDB &db,
+                               int k = 3,
+                               double unknownThresh = 3.0);
+
 // Draw the classified label on the image at each region's centroid.
+// Uses KNN by default.
 void classifyAndLabel(cv::Mat &display,
                       const std::vector<FeatureVec> &fvecs,
                       const FeatureDB &db);

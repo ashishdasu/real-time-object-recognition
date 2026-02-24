@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
 
     bool classifyMode = false;
 
-    std::cout << "d:cycle-view  n:label  l:reload-db  c:toggle-classify  q:quit\n";
+    std::cout << "d:cycle-view  n:label  l:reload-db  c:toggle-classify  a:auto-learn  q:quit\n";
 
     cv::Mat frame, thresholded, cleaned;
     RegionMap regionMap;
@@ -132,6 +132,26 @@ int main(int argc, char* argv[]) {
                 addSample(db, label, fvecs[0]);
                 saveDatabase("data/feature_db.csv", db);
                 std::cout << "Saved '" << label << "' (" << db.labels.size() << " total)\n";
+            }
+        }
+
+        // Auto-learn: only fires when classify mode is on and the current
+        // object is unrecognized, letting you build the DB on the fly
+        if (key == 'a' && classifyMode) {
+            if (fvecs.empty()) {
+                std::cout << "No object detected\n";
+            } else {
+                std::string result = classifyFeatureKNN(fvecs[0], db);
+                if (result == "Unknown") {
+                    std::cout << "Unknown object — enter label to learn: ";
+                    std::string label;
+                    std::cin >> label;
+                    addSample(db, label, fvecs[0]);
+                    saveDatabase("data/feature_db.csv", db);
+                    std::cout << "Learned '" << label << "' (" << db.labels.size() << " total)\n";
+                } else {
+                    std::cout << "Object already recognized as '" << result << "'\n";
+                }
             }
         }
     }
