@@ -11,6 +11,7 @@
 #include <opencv2/opencv.hpp>
 #include "threshold.h"
 #include "morphology.h"
+#include "regions.h"
 
 int main(int argc, char* argv[]) {
     cv::VideoCapture cap;
@@ -34,19 +35,23 @@ int main(int argc, char* argv[]) {
     cv::namedWindow("Debug",   cv::WINDOW_AUTOSIZE);
 
     // Cycles through what the debug window shows
-    enum View { ORIGINAL, THRESHOLD, MORPHOLOGY, VIEW_COUNT };
-    const char* viewNames[] = { "Original", "Threshold", "Morphology" };
+    enum View { ORIGINAL, THRESHOLD, MORPHOLOGY, REGIONS, VIEW_COUNT };
+    const char* viewNames[] = { "Original", "Threshold", "Morphology", "Regions" };
     View view = ORIGINAL;
 
     std::cout << "d: cycle view  q: quit\n";
 
     cv::Mat frame, thresholded, cleaned;
+    RegionMap regionMap;
+    std::vector<RegionInfo> regions;
+
     while (true) {
         cap >> frame;
         if (frame.empty()) break;
 
         applyThreshold(frame, thresholded);
         applyMorphology(thresholded, cleaned);
+        segmentRegions(cleaned, regionMap, regions);
 
         cv::imshow("Output", frame);
 
@@ -68,6 +73,9 @@ int main(int argc, char* argv[]) {
                 cv::imshow("Debug", vis);
                 break;
             }
+            case REGIONS:
+                cv::imshow("Debug", drawRegions(regionMap, regions));
+                break;
             default:
                 cv::imshow("Debug", frame);
         }
