@@ -4,17 +4,25 @@
  * Ashish Dasu
  *
  * Main loop. Opens a webcam or file (argv[1]), runs the full pipeline,
- * and handles keyboard input for training and classification.
+ * and handles keyboard input for training, classification, and evaluation.
  *
  * Keys:
  *   d  - cycle debug view (Original → Threshold → Morphology → Regions → Features)
  *   n  - label current object and add to training database
- *   l  - load database from disk
+ *   l  - reload database from disk
  *   c  - toggle live classification overlay
+ *   a  - auto-learn: label an unknown object on the spot (classify mode only)
+ *   e  - record evaluation sample (prompts for true label, logs prediction)
+ *   p  - print confusion matrix to terminal
  *   q  - quit
  */
 
 #include <iostream>
+#include <map>
+#include <set>
+#include <vector>
+#include <string>
+#include <iomanip>
 #include <opencv2/opencv.hpp>
 #include "threshold.h"
 #include "morphology.h"
@@ -22,6 +30,51 @@
 #include "features.h"
 #include "database.h"
 #include "classifier.h"
+
+// Print a confusion matrix from (true, predicted) pairs
+static void printConfusionMatrix(
+        const std::vector<std::pair<std::string,std::string>> &results) {
+
+    if (results.empty()) { std::cout << "No evaluation data.\n"; return; }
+
+    // Collect the ordered set of class names
+    std::set<std::string> classSet;
+    for (const auto &r : results) {
+        classSet.insert(r.first);
+        classSet.insert(r.second);
+    }
+    std::vector<std::string> classes(classSet.begin(), classSet.end());
+    int N = classes.size();
+
+    // Map class name → index
+    std::map<std::string,int> idx;
+    for (int i = 0; i < N; i++) idx[classes[i]] = i;
+
+    // Build NxN matrix  [true][predicted]
+    std::vector<std::vector<int>> mat(N, std::vector<int>(N, 0));
+    for (const auto &r : results)
+        mat[idx[r.first]][idx[r.second]]++;
+
+    // Print header
+    const int W = 12;
+    std::cout << "\n--- Confusion Matrix (rows=true, cols=predicted) ---\n";
+    std::cout << std::setw(W) << "";
+    for (const auto &c : classes) std::cout << std::setw(W) << c;
+    std::cout << "\n";
+
+    int correct = 0, total = results.size();
+    for (int i = 0; i < N; i++) {
+        std::cout << std::setw(W) << classes[i];
+        for (int j = 0; j < N; j++) {
+            std::cout << std::setw(W) << mat[i][j];
+            if (i == j) correct += mat[i][j];
+        }
+        std::cout << "\n";
+    }
+    std::cout << "\nAccuracy: " << correct << "/" << total
+              << " (" << std::fixed << std::setprecision(1)
+              << 100.0 * correct / total << "%)\n\n";
+}
 
 int main(int argc, char* argv[]) {
     cv::VideoCapture cap;
@@ -54,7 +107,10 @@ int main(int argc, char* argv[]) {
 
     bool classifyMode = false;
 
-    std::cout << "d:cycle-view  n:label  l:reload-db  c:toggle-classify  a:auto-learn  q:quit\n";
+    // Evaluation data: (true label, predicted label)
+    std::vector<std::pair<std::string,std::string>> evalResults;
+
+    std::cout << "d:view  n:label  l:reload  c:classify  a:auto-learn  e:eval  p:matrix  q:quit\n";
 
     cv::Mat frame, thresholded, cleaned;
     RegionMap regionMap;
@@ -70,13 +126,11 @@ int main(int argc, char* argv[]) {
         segmentRegions(cleaned, regionMap, regions);
         computeFeatures(frame, regionMap, regions, fvecs);
 
-        // Output window: feature overlay, plus classification if enabled
         cv::Mat output = drawFeatureOverlay(frame, fvecs);
         if (classifyMode && !db.samples.empty())
             classifyAndLabel(output, fvecs, db);
         cv::imshow("Output", output);
 
-        // Debug window: selected pipeline stage
         switch (view) {
             case THRESHOLD: {
                 cv::Mat vis;
@@ -135,8 +189,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Auto-learn: only fires when classify mode is on and the current
-        // object is unrecognized, letting you build the DB on the fly
         if (key == 'a' && classifyMode) {
             if (fvecs.empty()) {
                 std::cout << "No object detected\n";
@@ -150,11 +202,31 @@ int main(int argc, char* argv[]) {
                     saveDatabase("data/feature_db.csv", db);
                     std::cout << "Learned '" << label << "' (" << db.labels.size() << " total)\n";
                 } else {
-                    std::cout << "Object already recognized as '" << result << "'\n";
+                    std::cout << "Already recognized as '" << result << "'\n";
                 }
             }
         }
+
+        if (key == 'e') {
+            if (fvecs.empty()) {
+                std::cout << "No object detected\n";
+            } else {
+                std::string predicted = classifyFeatureKNN(fvecs[0], db);
+                std::cout << "Predicted: " << predicted << "  |  True label: ";
+                std::string trueLabel;
+                std::cin >> trueLabel;
+                evalResults.push_back({ trueLabel, predicted });
+                std::cout << "Recorded (" << evalResults.size() << " samples)\n";
+            }
+        }
+
+        if (key == 'p') {
+            printConfusionMatrix(evalResults);
+        }
     }
+
+    // Print matrix automatically on exit if data was collected
+    if (!evalResults.empty()) printConfusionMatrix(evalResults);
 
     cap.release();
     cv::destroyAllWindows();
