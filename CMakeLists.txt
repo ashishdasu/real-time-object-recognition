@@ -15,5 +15,7 @@ add_executable(objrecog
     features.cpp
     database.cpp
     classifier.cpp
+    embedding.cpp
+    utilities.cpp
 )
 target_link_libraries(objrecog ${OpenCV_LIBS})

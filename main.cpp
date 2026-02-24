@@ -30,6 +30,7 @@
 #include "features.h"
 #include "database.h"
 #include "classifier.h"
+#include "embedding.h"
 
 // Print a confusion matrix from (true, predicted) pairs
 static void printConfusionMatrix(
@@ -105,12 +106,23 @@ int main(int argc, char* argv[]) {
     loadDatabase("data/feature_db.csv", db);
     std::cout << "DB loaded: " << db.labels.size() << " entries\n";
 
-    bool classifyMode = false;
+    // Load ResNet18 for embedding-based classification
+    cv::dnn::Net net;
+    bool netReady = loadNetwork("resnet18-v2-7.onnx", net);
+    if (!netReady) std::cout << "Warning: could not load ResNet18 model\n";
+
+    EmbeddingDB embDB;
+    loadEmbeddingDB("data/embedding_db.yml", embDB);
+    std::cout << "Embedding DB loaded: " << embDB.labels.size() << " entries\n";
+
+    bool classifyMode  = false;
+    bool embedMode     = false;   // use embedding classifier instead of hand features
 
     // Evaluation data: (true label, predicted label)
     std::vector<std::pair<std::string,std::string>> evalResults;
 
-    std::cout << "d:view  n:label  l:reload  c:classify  a:auto-learn  e:eval  p:matrix  q:quit\n";
+    std::cout << "d:view  n:label  l:reload  c:classify  a:auto-learn\n"
+              << "b:save-embedding  m:toggle-embed-classify  e:eval  p:matrix  q:quit\n";
 
     cv::Mat frame, thresholded, cleaned;
     RegionMap regionMap;
@@ -127,8 +139,19 @@ int main(int argc, char* argv[]) {
         computeFeatures(frame, regionMap, regions, fvecs);
 
         cv::Mat output = drawFeatureOverlay(frame, fvecs);
-        if (classifyMode && !db.samples.empty())
+        if (embedMode && netReady && !embDB.embeddings.empty() && !fvecs.empty()) {
+            cv::Mat emb;
+            if (getRegionEmbedding(frame, fvecs[0], regionMap, net, emb)) {
+                std::string label = classifyEmbedding(emb, embDB);
+                cv::Point pt((int)fvecs[0].centroid.x, (int)fvecs[0].centroid.y - 20);
+                cv::putText(output, "[E] " + label, pt,
+                            cv::FONT_HERSHEY_SIMPLEX, 0.8, {0, 0, 0}, 4);
+                cv::putText(output, "[E] " + label, pt,
+                            cv::FONT_HERSHEY_SIMPLEX, 0.8, {255, 128, 0}, 2);
+            }
+        } else if (classifyMode && !db.samples.empty()) {
             classifyAndLabel(output, fvecs, db);
+        }
         cv::imshow("Output", output);
 
         switch (view) {
@@ -222,6 +245,33 @@ int main(int argc, char* argv[]) {
 
         if (key == 'p') {
             printConfusionMatrix(evalResults);
+        }
+
+        if (key == 'm') {
+            if (!netReady) { std::cout << "Model not loaded\n"; }
+            else {
+                embedMode = !embedMode;
+                std::cout << "Embed classify: " << (embedMode ? "ON" : "OFF") << "\n";
+            }
+        }
+
+        // Save an embedding for the current object to the embedding DB
+        if (key == 'b' && netReady) {
+            if (fvecs.empty()) {
+                std::cout << "No object detected\n";
+            } else {
+                cv::Mat emb;
+                if (getRegionEmbedding(frame, fvecs[0], regionMap, net, emb)) {
+                    std::cout << "Label for embedding: ";
+                    std::string label;
+                    std::cin >> label;
+                    addEmbeddingSample(embDB, label, emb);
+                    saveEmbeddingDB("data/embedding_db.yml", embDB);
+                    std::cout << "Embedding saved (" << embDB.labels.size() << " total)\n";
+                } else {
+                    std::cout << "Could not extract embedding\n";
+                }
+            }
         }
     }
 
