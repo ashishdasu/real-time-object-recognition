@@ -3,17 +3,18 @@
  * CS5330 - Project 3: Real-time 2D Object Recognition
  * Ashish Dasu
  *
- * Video capture loop. Opens a webcam or image/video file passed as
- * argv[1], displays the feed in a window, and exits on 'q'.
+ * Main loop. Opens a webcam or file (argv[1]), runs each pipeline stage,
+ * and displays results. Press 'd' to cycle through pipeline views, 'q' to quit.
  */
 
 #include <iostream>
 #include <opencv2/opencv.hpp>
+#include "threshold.h"
+#include "morphology.h"
 
 int main(int argc, char* argv[]) {
     cv::VideoCapture cap;
 
-    // Accept a device index (e.g. 0) or a file/video path as argv[1]
     if (argc > 1) {
         try {
             cap.open(std::stoi(argv[1]));
@@ -29,16 +30,54 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    cv::namedWindow("Object Recognition", cv::WINDOW_AUTOSIZE);
+    cv::namedWindow("Output",  cv::WINDOW_AUTOSIZE);
+    cv::namedWindow("Debug",   cv::WINDOW_AUTOSIZE);
 
-    cv::Mat frame;
+    // Cycles through what the debug window shows
+    enum View { ORIGINAL, THRESHOLD, MORPHOLOGY, VIEW_COUNT };
+    const char* viewNames[] = { "Original", "Threshold", "Morphology" };
+    View view = ORIGINAL;
+
+    std::cout << "d: cycle view  q: quit\n";
+
+    cv::Mat frame, thresholded, cleaned;
     while (true) {
         cap >> frame;
         if (frame.empty()) break;
 
-        cv::imshow("Object Recognition", frame);
+        applyThreshold(frame, thresholded);
+        applyMorphology(thresholded, cleaned);
 
-        if ((char)cv::waitKey(10) == 'q') break;
+        cv::imshow("Output", frame);
+
+        // Debug window shows the selected pipeline stage
+        switch (view) {
+            case THRESHOLD: {
+                cv::Mat vis;
+                cv::cvtColor(thresholded, vis, cv::COLOR_GRAY2BGR);
+                cv::putText(vis, viewNames[view], {10, 25},
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, {0, 255, 0}, 2);
+                cv::imshow("Debug", vis);
+                break;
+            }
+            case MORPHOLOGY: {
+                cv::Mat vis;
+                cv::cvtColor(cleaned, vis, cv::COLOR_GRAY2BGR);
+                cv::putText(vis, viewNames[view], {10, 25},
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, {0, 255, 0}, 2);
+                cv::imshow("Debug", vis);
+                break;
+            }
+            default:
+                cv::imshow("Debug", frame);
+        }
+
+        char key = (char)cv::waitKey(10);
+        if (key == 'q') break;
+        if (key == 'd') {
+            view = (View)((view + 1) % VIEW_COUNT);
+            std::cout << "View: " << viewNames[view] << "\n";
+        }
     }
 
     cap.release();

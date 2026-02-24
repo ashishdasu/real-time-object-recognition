@@ -7,5 +7,9 @@ set(CMAKE_BUILD_TYPE Release)
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(objrecog main.cpp)
+add_executable(objrecog
+    main.cpp
+    threshold.cpp
+    morphology.cpp
+)
 target_link_libraries(objrecog ${OpenCV_LIBS})
