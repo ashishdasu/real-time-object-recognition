@@ -14,6 +14,7 @@
  *   a  - auto-learn: label an unknown object on the spot (classify mode only)
  *   e  - record evaluation sample (prompts for true label, logs prediction)
  *   p  - print confusion matrix to terminal
+ *   s  - save screenshot of both windows to disk
  *   q  - quit
  */
 
@@ -23,6 +24,7 @@
 #include <vector>
 #include <string>
 #include <iomanip>
+#include <ctime>
 #include <opencv2/opencv.hpp>
 #include "threshold.h"
 #include "morphology.h"
@@ -122,7 +124,7 @@ int main(int argc, char* argv[]) {
     std::vector<std::pair<std::string,std::string>> evalResults;
 
     std::cout << "d:view  n:label  l:reload  c:classify  a:auto-learn\n"
-              << "b:save-embedding  m:toggle-embed-classify  e:eval  p:matrix  q:quit\n";
+              << "b:save-embedding  m:embed-classify  e:eval  p:matrix  s:screenshot  q:quit\n";
 
     cv::Mat frame, thresholded, cleaned;
     RegionMap regionMap;
@@ -234,7 +236,16 @@ int main(int argc, char* argv[]) {
             if (fvecs.empty()) {
                 std::cout << "No object detected\n";
             } else {
-                std::string predicted = classifyFeatureKNN(fvecs[0], db);
+                std::string predicted;
+                if (embedMode && netReady && !embDB.embeddings.empty()) {
+                    cv::Mat emb;
+                    if (getRegionEmbedding(frame, fvecs[0], regionMap, net, emb))
+                        predicted = classifyEmbedding(emb, embDB);
+                    else
+                        predicted = "Unknown";
+                } else {
+                    predicted = classifyFeatureKNN(fvecs[0], db);
+                }
                 std::cout << "Predicted: " << predicted << "  |  True label: ";
                 std::string trueLabel;
                 std::cin >> trueLabel;
@@ -245,6 +256,24 @@ int main(int argc, char* argv[]) {
 
         if (key == 'p') {
             printConfusionMatrix(evalResults);
+        }
+
+        if (key == 's') {
+            // Timestamp-based filename so successive saves don't overwrite
+            std::time_t t = std::time(nullptr);
+            std::string ts = std::to_string(t);
+            cv::imwrite("screenshot_output_" + ts + ".png", output);
+            // Also save whatever the debug window is currently showing
+            cv::Mat debugFrame;
+            switch (view) {
+                case THRESHOLD: cv::cvtColor(thresholded, debugFrame, cv::COLOR_GRAY2BGR); break;
+                case MORPHOLOGY: cv::cvtColor(cleaned, debugFrame, cv::COLOR_GRAY2BGR); break;
+                case REGIONS: debugFrame = drawRegions(regionMap, regions); break;
+                case FEATURES: debugFrame = drawFeatureOverlay(frame, fvecs); break;
+                default: debugFrame = frame.clone();
+            }
+            cv::imwrite("screenshot_debug_" + ts + ".png", debugFrame);
+            std::cout << "Saved screenshots with timestamp " << ts << "\n";
         }
 
         if (key == 'm') {
