@@ -12,6 +12,7 @@
 #include "threshold.h"
 #include "morphology.h"
 #include "regions.h"
+#include "features.h"
 
 int main(int argc, char* argv[]) {
     cv::VideoCapture cap;
@@ -35,8 +36,8 @@ int main(int argc, char* argv[]) {
     cv::namedWindow("Debug",   cv::WINDOW_AUTOSIZE);
 
     // Cycles through what the debug window shows
-    enum View { ORIGINAL, THRESHOLD, MORPHOLOGY, REGIONS, VIEW_COUNT };
-    const char* viewNames[] = { "Original", "Threshold", "Morphology", "Regions" };
+    enum View { ORIGINAL, THRESHOLD, MORPHOLOGY, REGIONS, FEATURES, VIEW_COUNT };
+    const char* viewNames[] = { "Original", "Threshold", "Morphology", "Regions", "Features" };
     View view = ORIGINAL;
 
     std::cout << "d: cycle view  q: quit\n";
@@ -44,6 +45,7 @@ int main(int argc, char* argv[]) {
     cv::Mat frame, thresholded, cleaned;
     RegionMap regionMap;
     std::vector<RegionInfo> regions;
+    std::vector<FeatureVec> fvecs;
 
     while (true) {
         cap >> frame;
@@ -52,8 +54,9 @@ int main(int argc, char* argv[]) {
         applyThreshold(frame, thresholded);
         applyMorphology(thresholded, cleaned);
         segmentRegions(cleaned, regionMap, regions);
+        computeFeatures(frame, regionMap, regions, fvecs);
 
-        cv::imshow("Output", frame);
+        cv::imshow("Output", drawFeatureOverlay(frame, fvecs));
 
         // Debug window shows the selected pipeline stage
         switch (view) {
@@ -75,6 +78,9 @@ int main(int argc, char* argv[]) {
             }
             case REGIONS:
                 cv::imshow("Debug", drawRegions(regionMap, regions));
+                break;
+            case FEATURES:
+                cv::imshow("Debug", drawFeatureOverlay(frame, fvecs));
                 break;
             default:
                 cv::imshow("Debug", frame);

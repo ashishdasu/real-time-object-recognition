@@ -12,5 +12,6 @@ add_executable(objrecog
     threshold.cpp
     morphology.cpp
     regions.cpp
+    features.cpp
 )
 target_link_libraries(objrecog ${OpenCV_LIBS})
