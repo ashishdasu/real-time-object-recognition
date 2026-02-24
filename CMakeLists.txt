@@ -13,5 +13,7 @@ add_executable(objrecog
     morphology.cpp
     regions.cpp
     features.cpp
+    database.cpp
+    classifier.cpp
 )
 target_link_libraries(objrecog ${OpenCV_LIBS})

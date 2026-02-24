@@ -3,8 +3,15 @@
  * CS5330 - Project 3: Real-time 2D Object Recognition
  * Ashish Dasu
  *
- * Main loop. Opens a webcam or file (argv[1]), runs each pipeline stage,
- * and displays results. Press 'd' to cycle through pipeline views, 'q' to quit.
+ * Main loop. Opens a webcam or file (argv[1]), runs the full pipeline,
+ * and handles keyboard input for training and classification.
+ *
+ * Keys:
+ *   d  - cycle debug view (Original → Threshold → Morphology → Regions → Features)
+ *   n  - label current object and add to training database
+ *   l  - load database from disk
+ *   c  - toggle live classification overlay
+ *   q  - quit
  */
 
 #include <iostream>
@@ -13,6 +20,8 @@
 #include "morphology.h"
 #include "regions.h"
 #include "features.h"
+#include "database.h"
+#include "classifier.h"
 
 int main(int argc, char* argv[]) {
     cv::VideoCapture cap;
@@ -32,15 +41,20 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    cv::namedWindow("Output",  cv::WINDOW_AUTOSIZE);
-    cv::namedWindow("Debug",   cv::WINDOW_AUTOSIZE);
+    cv::namedWindow("Output", cv::WINDOW_AUTOSIZE);
+    cv::namedWindow("Debug",  cv::WINDOW_AUTOSIZE);
 
-    // Cycles through what the debug window shows
     enum View { ORIGINAL, THRESHOLD, MORPHOLOGY, REGIONS, FEATURES, VIEW_COUNT };
     const char* viewNames[] = { "Original", "Threshold", "Morphology", "Regions", "Features" };
     View view = ORIGINAL;
 
-    std::cout << "d: cycle view  q: quit\n";
+    FeatureDB db;
+    loadDatabase("data/feature_db.csv", db);
+    std::cout << "DB loaded: " << db.labels.size() << " entries\n";
+
+    bool classifyMode = false;
+
+    std::cout << "d:cycle-view  n:label  l:reload-db  c:toggle-classify  q:quit\n";
 
     cv::Mat frame, thresholded, cleaned;
     RegionMap regionMap;
@@ -56,9 +70,13 @@ int main(int argc, char* argv[]) {
         segmentRegions(cleaned, regionMap, regions);
         computeFeatures(frame, regionMap, regions, fvecs);
 
-        cv::imshow("Output", drawFeatureOverlay(frame, fvecs));
+        // Output window: feature overlay, plus classification if enabled
+        cv::Mat output = drawFeatureOverlay(frame, fvecs);
+        if (classifyMode && !db.samples.empty())
+            classifyAndLabel(output, fvecs, db);
+        cv::imshow("Output", output);
 
-        // Debug window shows the selected pipeline stage
+        // Debug window: selected pipeline stage
         switch (view) {
             case THRESHOLD: {
                 cv::Mat vis;
@@ -88,9 +106,33 @@ int main(int argc, char* argv[]) {
 
         char key = (char)cv::waitKey(10);
         if (key == 'q') break;
+
         if (key == 'd') {
             view = (View)((view + 1) % VIEW_COUNT);
             std::cout << "View: " << viewNames[view] << "\n";
+        }
+
+        if (key == 'c') {
+            classifyMode = !classifyMode;
+            std::cout << "Classify: " << (classifyMode ? "ON" : "OFF") << "\n";
+        }
+
+        if (key == 'l') {
+            loadDatabase("data/feature_db.csv", db);
+            std::cout << "DB reloaded: " << db.labels.size() << " entries\n";
+        }
+
+        if (key == 'n') {
+            if (fvecs.empty()) {
+                std::cout << "No object detected\n";
+            } else {
+                std::cout << "Label: ";
+                std::string label;
+                std::cin >> label;
+                addSample(db, label, fvecs[0]);
+                saveDatabase("data/feature_db.csv", db);
+                std::cout << "Saved '" << label << "' (" << db.labels.size() << " total)\n";
+            }
         }
     }
 
