@@ -80,7 +80,7 @@ void classifyAndLabel(cv::Mat &display,
                       const std::vector<FeatureVec> &fvecs,
                       const FeatureDB &db) {
     for (const auto &fv : fvecs) {
-        std::string label = classifyFeatureKNN(fv, db);
+        std::string label = classifyFeatureKNN(fv, db, 3, 1e9);
         cv::Point pt((int)fv.centroid.x, (int)fv.centroid.y - 20);
         cv::putText(display, label, pt,
                     cv::FONT_HERSHEY_SIMPLEX, 0.8, {0, 0, 0}, 4);

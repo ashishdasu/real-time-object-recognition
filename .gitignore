@@ -1,3 +1,10 @@
 build/
 .DS_Store
 *.user
+data/
+test/
+screenshots/
+# *.pdf  — committed for submission
+*.onnx
+*.pyc
+__pycache__/

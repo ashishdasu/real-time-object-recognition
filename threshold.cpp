@@ -48,11 +48,27 @@ static int isodataThreshold(const cv::Mat &gray) {
 }
 
 void applyThreshold(const cv::Mat &src, cv::Mat &dst) {
-    cv::Mat gray, blurred;
-    cv::cvtColor(src, gray, cv::COLOR_BGR2GRAY);
+    // Convert to HSV so we can darken highly saturated pixels before thresholding.
+    // This lets colored objects (e.g. bright blue clip) read as dark against the
+    // white (low-saturation) background, which ISODATA would otherwise miss.
+    cv::Mat hsv;
+    cv::cvtColor(src, hsv, cv::COLOR_BGR2HSV);
+
+    cv::Mat gray(src.rows, src.cols, CV_8UC1);
+    for (int r = 0; r < hsv.rows; r++) {
+        for (int c = 0; c < hsv.cols; c++) {
+            cv::Vec3b p = hsv.at<cv::Vec3b>(r, c);
+            uchar sat = p[1];   // 0-255
+            uchar val = p[2];   // 0-255 (brightness)
+            // Pull saturated pixels toward dark: the more saturated, the darker.
+            uchar adjusted = (uchar)(val * (1.0f - 0.85f * (sat / 255.0f)));
+            gray.at<uchar>(r, c) = adjusted;
+        }
+    }
+
+    cv::Mat blurred;
     cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 0);
 
     int t = isodataThreshold(blurred);
-    // Objects are darker than the white background, so invert the binary result
     cv::threshold(blurred, dst, t, 255, cv::THRESH_BINARY_INV);
 }
