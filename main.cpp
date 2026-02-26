@@ -19,6 +19,7 @@
  */
 
 #include <iostream>
+#include <fstream>
 #include <map>
 #include <set>
 #include <vector>
@@ -216,6 +217,46 @@ static void trainEmbeddingsFromTest(EmbeddingDB &embDB, cv::dnn::Net &net) {
     std::cout << "Embedding DB rebuilt: " << embDB.labels.size() << " entries\n";
 }
 
+// Draw text rotated 45 degrees into img, with the bottom of the text
+// landing at anchor (center-x of a column cell, just above the grid).
+static void drawRotatedLabel(cv::Mat &img, const std::string &text, cv::Point anchor) {
+    const double scale = 0.42;
+    const int thickness = 1;
+    int baseline = 0;
+    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, scale, thickness, &baseline);
+
+    // Render text onto a generously sized canvas so rotation doesn't clip it
+    int pad = 6;
+    int cw = sz.width + 2 * pad;
+    int ch = sz.height + baseline + 2 * pad;
+    // After 45° rotation the diagonal is sqrt(cw²+ch²) — use that as canvas side
+    int side = (int)std::ceil(std::sqrt((double)cw*cw + (double)ch*ch)) + 4;
+    cv::Mat canvas(side, side, CV_8UC3, cv::Scalar(255,255,255));
+    // Place text in the centre of the canvas
+    cv::Point textOrg((side - sz.width) / 2, (side + sz.height) / 2 - baseline);
+    cv::putText(canvas, text, textOrg, cv::FONT_HERSHEY_SIMPLEX, scale, {0,0,0}, thickness);
+
+    // Rotate 45° clockwise around canvas centre
+    cv::Point2f center(side / 2.0f, side / 2.0f);
+    cv::Mat rot = cv::getRotationMatrix2D(center, -45, 1.0);
+    cv::Mat rotated;
+    cv::warpAffine(canvas, rotated, rot, cv::Size(side, side),
+                   cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(255,255,255));
+
+    // Stamp: anchor is the bottom-centre of where the text should land
+    int x0 = anchor.x - side / 2;
+    int y0 = anchor.y - side;
+    for (int r = 0; r < rotated.rows; r++) {
+        for (int c = 0; c < rotated.cols; c++) {
+            int yr = y0 + r, xc = x0 + c;
+            if (yr < 0 || yr >= img.rows || xc < 0 || xc >= img.cols) continue;
+            cv::Vec3b px = rotated.at<cv::Vec3b>(r, c);
+            if (px[0] < 230)
+                img.at<cv::Vec3b>(yr, xc) = px;
+        }
+    }
+}
+
 // Save a confusion matrix as a PNG image
 static void saveConfusionMatrixPNG(
         const std::vector<std::pair<std::string,std::string>> &results,
@@ -232,46 +273,101 @@ static void saveConfusionMatrixPNG(
     for (int i = 0; i < N; i++) idx[classes[i]] = i;
 
     std::vector<std::vector<int>> mat(N, std::vector<int>(N, 0));
-    for (const auto &r : results) mat[idx[r.first]][idx[r.second]]++;
-
-    const int cell = 80, margin = 120;
-    int W = margin + N * cell, H = margin + N * cell;
-    cv::Mat img(H, W, CV_8UC3, cv::Scalar(255,255,255));
-
-    // Column headers (predicted)
-    for (int j = 0; j < N; j++) {
-        cv::putText(img, classes[j],
-                    cv::Point(margin + j*cell + 4, margin - 8),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.38, {0,0,0}, 1);
-    }
-    // Row headers (true)
-    for (int i = 0; i < N; i++) {
-        cv::putText(img, classes[i],
-                    cv::Point(4, margin + i*cell + cell/2),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.38, {0,0,0}, 1);
-    }
-
     int correct = 0, total = (int)results.size();
+    for (const auto &r : results) mat[idx[r.first]][idx[r.second]]++;
+    for (int i = 0; i < N; i++) correct += mat[i][i];
+
+    // Find max off-diagonal count for color scaling
+    int maxErr = 1;
+    for (int i = 0; i < N; i++)
+        for (int j = 0; j < N; j++)
+            if (i != j && mat[i][j] > maxErr) maxErr = mat[i][j];
+    int maxDiag = 1;
+    for (int i = 0; i < N; i++)
+        if (mat[i][i] > maxDiag) maxDiag = mat[i][i];
+
+    const int cell = 72;
+    const int leftMargin = 115;  // row labels
+    const int topMargin  = 160;  // rotated column labels + padding
+    const int bottomPad  = 45;
+    const int rightPad   = 20;
+
+    int W = leftMargin + N * cell + rightPad;
+    int H = topMargin  + N * cell + bottomPad;
+    cv::Mat img(H, W, CV_8UC3, cv::Scalar(252,252,252));
+
+    // "Predicted" axis label centred above the columns
+    {
+        int baseline2 = 0;
+        cv::Size lsz = cv::getTextSize("Predicted Label", cv::FONT_HERSHEY_SIMPLEX, 0.52, 1, &baseline2);
+        cv::putText(img, "Predicted Label",
+                    cv::Point(leftMargin + (N*cell - lsz.width)/2, 18),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.52, {80,80,80}, 1);
+    }
+    // "True Label" left of the rows
+    {
+        int baseline2 = 0;
+        cv::Size lsz = cv::getTextSize("True Label", cv::FONT_HERSHEY_SIMPLEX, 0.52, 1, &baseline2);
+        cv::putText(img, "True Label",
+                    cv::Point(4, topMargin + (N*cell + lsz.width)/2),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.52, {80,80,80}, 1);
+    }
+
+    // Rotated column headers
+    for (int j = 0; j < N; j++) {
+        cv::Point anchor(leftMargin + j*cell + cell/2 - 4, topMargin - 8);
+        drawRotatedLabel(img, classes[j], anchor);
+    }
+
+    // Row headers
+    for (int i = 0; i < N; i++) {
+        int baseline = 0;
+        cv::Size sz = cv::getTextSize(classes[i], cv::FONT_HERSHEY_SIMPLEX, 0.42, 1, &baseline);
+        cv::putText(img, classes[i],
+                    cv::Point(leftMargin - sz.width - 6, topMargin + i*cell + cell/2 + 5),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.42, {0,0,0}, 1);
+    }
+
+    // Cells
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-            cv::Rect cell_rect(margin + j*cell, margin + i*cell, cell, cell);
-            cv::Scalar bg = (i == j)
-                ? cv::Scalar(180, 230, 180)   // green diagonal
-                : (mat[i][j] > 0 ? cv::Scalar(180, 180, 230) : cv::Scalar(240,240,240));
-            cv::rectangle(img, cell_rect, bg, cv::FILLED);
-            cv::rectangle(img, cell_rect, {180,180,180}, 1);
-            if (mat[i][j] > 0) {
-                cv::putText(img, std::to_string(mat[i][j]),
-                            cv::Point(margin + j*cell + cell/2 - 8, margin + i*cell + cell/2 + 6),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.55, {0,0,0}, 1);
+            cv::Rect cr(leftMargin + j*cell, topMargin + i*cell, cell, cell);
+            cv::Scalar bg;
+            if (i == j && mat[i][i] > 0) {
+                // Green intensity proportional to count
+                float t = (maxDiag > 0) ? (float)mat[i][i] / maxDiag : 0;
+                bg = cv::Scalar(100 + (int)(40*(1-t)), 180 + (int)(55*t), 100 + (int)(40*(1-t)));
+            } else if (i == j) {
+                bg = cv::Scalar(245, 245, 245);  // zero on diagonal — neutral
+            } else if (mat[i][j] > 0) {
+                // Red intensity proportional to count
+                float t = (float)mat[i][j] / maxErr;
+                bg = cv::Scalar(180 - (int)(60*t), 180 - (int)(80*t), 230);
+            } else {
+                bg = cv::Scalar(245, 245, 245);
             }
-            if (i == j) correct += mat[i][j];
+            cv::rectangle(img, cr, bg, cv::FILLED);
+            cv::rectangle(img, cr, cv::Scalar(200,200,200), 1);
+
+            if (mat[i][j] > 0) {
+                std::string val = std::to_string(mat[i][j]);
+                int baseline2 = 0;
+                cv::Size vsz = cv::getTextSize(val, cv::FONT_HERSHEY_SIMPLEX, 0.6, 1, &baseline2);
+                cv::putText(img, val,
+                            cv::Point(cr.x + cell/2 - vsz.width/2,
+                                      cr.y + cell/2 + vsz.height/2),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.6, {20,20,20}, 1);
+            }
         }
     }
 
-    std::string acc = "Accuracy: " + std::to_string(correct) + "/" + std::to_string(total);
-    cv::putText(img, acc, cv::Point(margin, H - 8),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, {0,0,0}, 1);
+    // Accuracy line
+    double pct = 100.0 * correct / total;
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "Accuracy: %d/%d  (%.1f%%)", correct, total, pct);
+    cv::putText(img, buf, cv::Point(leftMargin, H - 10),
+                cv::FONT_HERSHEY_SIMPLEX, 0.52, {40,40,40}, 1);
+
     cv::imwrite(path, img);
 }
 
@@ -428,11 +524,22 @@ static void runEvaluate(FeatureDB &db, EmbeddingDB &embDB,
     }
 
     fs::create_directories("screenshots");
+
+    // Write raw results to CSV so plot_confusion.py can render them
+    auto writeCSV = [](const std::string &path,
+                       const std::vector<std::pair<std::string,std::string>> &res) {
+        std::ofstream f(path);
+        f << "true,predicted\n";
+        for (const auto &r : res) f << r.first << "," << r.second << "\n";
+    };
+    writeCSV("data/results_knn.csv", knnResults);
+
     printConfusionMatrix(knnResults);
     saveConfusionMatrixPNG(knnResults, "screenshots/confusion_knn.png");
 
     if (!embResults.empty()) {
         std::cout << "\n--- Embedding Classifier ---\n";
+        writeCSV("data/results_emb.csv", embResults);
         printConfusionMatrix(embResults);
         saveConfusionMatrixPNG(embResults, "screenshots/confusion_embedding.png");
     }
@@ -688,6 +795,9 @@ int main(int argc, char* argv[]) {
                     std::cout << "Unknown object — enter label to learn: ";
                     std::string label;
                     std::cin >> label;
+                    // Add 3x so the new class wins k=3 majority vote immediately
+                    addSample(db, label, fvecs[0]);
+                    addSample(db, label, fvecs[0]);
                     addSample(db, label, fvecs[0]);
                     saveDatabase("data/feature_db.csv", db);
                     std::cout << "Learned '" << label << "' (" << db.labels.size() << " total)\n";

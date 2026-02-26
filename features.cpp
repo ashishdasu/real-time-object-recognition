@@ -39,6 +39,8 @@ static void computeOBB(const cv::Point2d &centroid, double angle,
         corners[i] = { (float)pts[i].x, (float)pts[i].y };
 }
 
+// Compute 6 features per region: log-scaled Hu moments [0-3], percentFilled,
+// aspectRatio. Also stores angle and OBB corners for the overlay display.
 void computeFeatures(const cv::Mat &src,
                      const RegionMap &regionMap,
                      const std::vector<RegionInfo> &regions,
@@ -97,6 +99,8 @@ void computeFeatures(const cv::Mat &src,
     }
 }
 
+// Draw OBB, axis line, and fill/ar text on the image — used in the features
+// debug view and batch output screenshots.
 cv::Mat drawFeatureOverlay(const cv::Mat &src,
                            const std::vector<FeatureVec> &fvecs) {
     cv::Mat out = src.clone();

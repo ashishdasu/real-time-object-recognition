@@ -1,3 +1,7 @@
+# Ashish Dasu
+# CS5330 Project 
+# Feb 2026
+
 cmake_minimum_required(VERSION 3.10)
 project(ObjectRecognition)
 

@@ -3,18 +3,19 @@
  * CS5330 - Project 3
  * Ashish Dasu
  *
- * Written from scratch. Uses the ISODATA algorithm (iterative k-means, K=2)
- * to find a dynamic threshold rather than a fixed value. Works on grayscale
- * after a light blur to suppress high-frequency noise.
+ * Uses the ISODATA algorithm (iterative k-means, K=2) to find a dynamic
+ * threshold rather than a fixed value. Works on grayscale after a light blur to
+ * suppress high-frequency noise.
  */
 
 #include "threshold.h"
+
 #include <cmath>
 #include <vector>
 
-// Samples 1/16 of the pixels and runs iterative k-means with K=2 until the
-// two cluster means converge. Returns the midpoint as the threshold value.
-static int isodataThreshold(const cv::Mat &gray) {
+// ISODATA: sample every 4th pixel, iterate k=2 means until convergence,
+// return the midpoint as the threshold.
+static int isodataThreshold(const cv::Mat& gray) {
     std::vector<uchar> samples;
     samples.reserve((gray.rows / 4) * (gray.cols / 4));
     for (int r = 0; r < gray.rows; r += 4)
@@ -24,15 +25,17 @@ static int isodataThreshold(const cv::Mat &gray) {
     // Start means at the quarter-points of the intensity range
     double m0 = 64.0, m1 = 192.0;
 
-    for (int iter = 0; iter < 100; ++iter) {
+    for (int i = 0; i < 100; i++) {
         double sum0 = 0, sum1 = 0;
-        int    cnt0 = 0, cnt1 = 0;
+        int cnt0 = 0, cnt1 = 0;
 
         for (uchar v : samples) {
             if (std::abs((double)v - m0) <= std::abs((double)v - m1)) {
-                sum0 += v; cnt0++;
+                sum0 += v;
+                cnt0++;
             } else {
-                sum1 += v; cnt1++;
+                sum1 += v;
+                cnt1++;
             }
         }
 
@@ -47,10 +50,13 @@ static int isodataThreshold(const cv::Mat &gray) {
     return static_cast<int>((m0 + m1) / 2.0);
 }
 
-void applyThreshold(const cv::Mat &src, cv::Mat &dst) {
-    // Convert to HSV so we can darken highly saturated pixels before thresholding.
-    // This lets colored objects (e.g. bright blue clip) read as dark against the
-    // white (low-saturation) background, which ISODATA would otherwise miss.
+// BGR->HSV, darken saturated pixels so colored objects threshold correctly,
+// blur a little, then run ISODATA to pick the cutpoint.
+void applyThreshold(const cv::Mat& src, cv::Mat& dst) {
+    // Convert to HSV so we can darken highly saturated pixels before
+    // thresholding. This lets colored objects (e.g. bright blue clip) read as
+    // dark against the white (low-saturation) background, which ISODATA would
+    // otherwise miss.
     cv::Mat hsv;
     cv::cvtColor(src, hsv, cv::COLOR_BGR2HSV);
 
@@ -58,9 +64,10 @@ void applyThreshold(const cv::Mat &src, cv::Mat &dst) {
     for (int r = 0; r < hsv.rows; r++) {
         for (int c = 0; c < hsv.cols; c++) {
             cv::Vec3b p = hsv.at<cv::Vec3b>(r, c);
-            uchar sat = p[1];   // 0-255
-            uchar val = p[2];   // 0-255 (brightness)
-            // Pull saturated pixels toward dark: the more saturated, the darker.
+            uchar sat = p[1];  // 0-255
+            uchar val = p[2];  // 0-255 (brightness)
+            // Pull saturated pixels toward dark: the more saturated, the
+            // darker.
             uchar adjusted = (uchar)(val * (1.0f - 0.85f * (sat / 255.0f)));
             gray.at<uchar>(r, c) = adjusted;
         }

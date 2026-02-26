@@ -19,6 +19,8 @@ static void toArray(const FeatureVec &fv, double out[6]) {
     out[5] = fv.aspectRatio;
 }
 
+// Compute per-feature stdev across all samples for distance scaling.
+// Falls back to 1.0 if a feature has no variance (avoid divide-by-zero).
 void computeStdevs(FeatureDB &db) {
     const int N = 6;
     db.stdevs.assign(N, 1.0);
@@ -42,12 +44,15 @@ void computeStdevs(FeatureDB &db) {
     }
 }
 
+// Add one labeled sample and recompute stdevs so scaling stays current.
 void addSample(FeatureDB &db, const std::string &label, const FeatureVec &fv) {
     db.labels.push_back(label);
     db.samples.push_back(fv);
     computeStdevs(db);
 }
 
+// Writes all labeled samples to a CSV file. Each line is:
+//   label,hu0,hu1,hu2,hu3,percentFilled,aspectRatio
 void saveDatabase(const std::string &path, const FeatureDB &db) {
     std::ofstream f(path);
     for (size_t i = 0; i < db.labels.size(); i++) {
@@ -59,6 +64,7 @@ void saveDatabase(const std::string &path, const FeatureDB &db) {
     }
 }
 
+// Load CSV back into db. Returns false if the file isn't there.
 bool loadDatabase(const std::string &path, FeatureDB &db) {
     std::ifstream f(path);
     if (!f.is_open()) return false;

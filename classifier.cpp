@@ -14,6 +14,9 @@
 #include <limits>
 #include <map>
 
+// Euclidean distance in feature space with each dimension normalized by its
+// training-set standard deviation. This prevents features with large absolute
+// ranges (e.g. hu[2]) from dominating features with smaller ranges (e.g. percentFilled).
 static double scaledDistance(const FeatureVec &a, const FeatureVec &b,
                               const std::vector<double> &stdevs) {
     double fa[6] = { a.hu[0], a.hu[1], a.hu[2], a.hu[3], a.percentFilled, a.aspectRatio };
@@ -27,6 +30,7 @@ static double scaledDistance(const FeatureVec &a, const FeatureVec &b,
     return std::sqrt(dist);
 }
 
+// 1-NN: returns the closest training label, or "Unknown" if it's too far.
 std::string classifyFeature(const FeatureVec &fv,
                             const FeatureDB &db,
                             double unknownThresh) {
@@ -46,6 +50,8 @@ std::string classifyFeature(const FeatureVec &fv,
     return (bestDist < unknownThresh) ? bestLabel : "Unknown";
 }
 
+// KNN with majority vote. Returns "Unknown" if avg distance of top-k exceeds
+// unknownThresh — that's how we reject objects not in the database.
 std::string classifyFeatureKNN(const FeatureVec &fv,
                                const FeatureDB &db,
                                int k,
@@ -76,11 +82,12 @@ std::string classifyFeatureKNN(const FeatureVec &fv,
         [](const auto &a, const auto &b) { return a.second < b.second; })->first;
 }
 
+// Draw KNN label on the output image at each region's centroid.
 void classifyAndLabel(cv::Mat &display,
                       const std::vector<FeatureVec> &fvecs,
                       const FeatureDB &db) {
     for (const auto &fv : fvecs) {
-        std::string label = classifyFeatureKNN(fv, db, 3, 1e9);
+        std::string label = classifyFeatureKNN(fv, db, 3, 1.5);
         cv::Point pt((int)fv.centroid.x, (int)fv.centroid.y - 20);
         cv::putText(display, label, pt,
                     cv::FONT_HERSHEY_SIMPLEX, 0.8, {0, 0, 0}, 4);
