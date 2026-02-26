@@ -8,3 +8,11 @@ screenshots/
 *.onnx
 *.pyc
 __pycache__/
+# LaTeX build artifacts
+report.aux
+report.log
+report.out
+# Course examples and videos — not project code
+Demo Videos/
+Proj03Examples/
+devlog.md
